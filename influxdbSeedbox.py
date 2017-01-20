@@ -24,7 +24,6 @@ class configManager():
         self.valid_torrent_clients = ['deluge']
 
         print('Loading Configuration File {}'.format(config))
-        self.test_server = []
         config_file = os.path.join(os.getcwd(), config)
         if os.path.isfile(config_file):
             self.config = configparser.ConfigParser()
@@ -65,6 +64,7 @@ class configManager():
 
         # TorrentClient
         self.tor_client = self.config['TORRENTCLIENT'].get('Client', fallback=None)
+        self.tor_client_user = self.config['TORRENTCLIENT'].get('Username', fallback=None)
         self.tor_client_password = self.config['TORRENTCLIENT'].get('Password', fallback=None)
         self.tor_client_url = self.config['TORRENTCLIENT'].get('Url', fallback=None)
 
@@ -96,17 +96,11 @@ class influxdbSeedbox():
     def __init__(self, config=None):
 
         self.config = configManager(config=config)
-        self.session_id = None
-
-        # Torrent Data
-        self.torrent_list = {}
-        self.trackers = []
-        self.active_plugins = []
 
         self.output = self.config.output
         self.logger = None
-        self.request_id = 0
         self.delay = self.config.delay
+
         self.influx_client = InfluxDBClient(
             self.config.influx_address,
             self.config.influx_port,
@@ -115,8 +109,14 @@ class influxdbSeedbox():
             verify_ssl=self.config.influx_verify_ssl
         )
         self._set_logging()
-        self._authenticate()
 
+        if self.config.tor_client == 'deluge':
+            print('Generating Deluge Client')
+            self.tor_client = DelugeClient(self.send_log,
+                                           username=self.config.tor_client_user,
+                                           password=self.config.tor_client_password,
+                                           url=self.config.tor_client_url,
+                                           hostname=self.config.hostname)
 
     def _set_logging(self):
         """
@@ -182,6 +182,19 @@ class influxdbSeedbox():
         if self.output:
             print(json_data)
 
+        # TODO This bit of fuckery may turn out to not be a good idea.
+        """
+        The idea is we only write 1 series at a time but we can get passed a bunch of series.  If the incoming list
+        has more than 1 thing, we know it's a bunch of points to write.  We loop through them and recursively call this
+        method which each series.  The recursive call will only have 1 series so it passes on to be written to Influx.
+
+        I know, brilliant right?  Probably not
+        """
+        if len(json_data) > 1:
+            for series in json_data:
+                self.write_influx_data(series)
+            return
+
         try:
             self.influx_client.write_points(json_data)
         except (InfluxDBClientError, ConnectionError, InfluxDBServerError) as e:
@@ -202,6 +215,76 @@ class influxdbSeedbox():
             print(e)
 
         self.send_log('Written To Influx: {}'.format(json_data), 'debug')
+
+
+
+    def run(self):
+        while True:
+            self.tor_client.get_all_torrents()
+            torrent_json = self.tor_client.process_torrents()
+            if torrent_json:
+                self.write_influx_data(torrent_json)
+            self.tor_client.get_active_plugins()
+            tracker_json = self.tor_client.process_tracker_list()
+            if tracker_json:
+                self.write_influx_data(tracker_json)
+            time.sleep(self.delay)
+
+
+class TorrentClient:
+    """
+    Stub class to base individual torrent client classes on
+    """
+    def __init__(self, logger, username=None, password=None, url=None, hostname=None):
+
+        self.send_log = logger
+        self.hostname = hostname
+
+        # TODO Validate we're not getting None
+
+        # API Data
+        self.username = username
+        self.password = password
+        self.url = url
+
+        # Torrent Data
+        self.torrent_client = None
+        self.torrent_list = {}
+        self.trackers = []
+        self.active_plugins = []
+
+    def _create_request(self):
+        raise NotImplementedError
+
+    def _process_response(self, res):
+        raise NotImplementedError
+
+    def _authenticate(self):
+        raise NotImplementedError
+
+    def get_all_torrents(self):
+        raise NotImplementedError
+
+    def get_active_plugins(self):
+        raise NotImplementedError
+
+    def process_tracker_list(self):
+        raise NotImplementedError
+
+    def process_torrents(self):
+        raise NotImplementedError
+
+
+class DelugeClient(TorrentClient):
+
+    def __init__(self, logger, username=None, password=None, url=None, hostname=None):
+        TorrentClient.__init__(self, logger, username=username, password=password, url=url, hostname=hostname)
+
+        self.session_id = None
+        self.request_id = 0
+        self.torrent_client = 'Deluge'
+
+        self._authenticate()
 
     def _add_common_headers(self, req):
         """
@@ -266,7 +349,7 @@ class influxdbSeedbox():
             'params': params
         }).encode('utf-8')
 
-        req = self._add_common_headers(Request(self.config.tor_client_url, data=data))
+        req = self._add_common_headers(Request(self.url, data=data))
         self.request_id += 1
 
         return req
@@ -295,11 +378,11 @@ class influxdbSeedbox():
         If we return from this method we assume we are authenticated for all future requests
         :return: None
         """
-        msg = 'Attempting to authenticate against {} API'.format(self.config.tor_client)
+        msg = 'Attempting to authenticate against {} API'.format(self.torrent_client)
         self.send_log(msg, 'info')
         print(msg)
 
-        req = self._create_request(method='auth.login', params=[self.config.tor_client_password])
+        req = self._create_request(method='auth.login', params=[self.password])
 
         try:
             res = urlopen(req)
@@ -316,12 +399,12 @@ class influxdbSeedbox():
         output = self._process_response(res)
 
         if output and not output['result']:
-            msg = 'Failed to authenticate to {} API. Aborting'.format(self.config.tor_client)
+            msg = 'Failed to authenticate to {} API. Aborting'.format(self.torrent_client)
             self.send_log(msg, 'error')
             print(msg)
             sys.exit(1)
 
-        msg = 'Successfully Authenticated With {} API'.format(self.config.tor_client)
+        msg = 'Successfully Authenticated With {} API'.format(self.torrent_client)
         self.send_log(msg, 'info')
         print(msg)
 
@@ -345,7 +428,7 @@ class influxdbSeedbox():
 
         output = self._process_response(res)
         if output['error']:
-            msg = 'Problem getting torrent list from {}. Error: {}'.format(self.config.tor_client, output['error'])
+            msg = 'Problem getting torrent list from {}. Error: {}'.format(self.torrent_client, output['error'])
             print(msg)
             self.send_log(msg, 'error')
             self.torrent_list = []
@@ -388,7 +471,7 @@ class influxdbSeedbox():
 
         output = self._process_response(res)
         if output['error']:
-            msg = 'Problem getting plugin list from {}. Error: {}'.format(self.config.tor_client, output['error'])
+            msg = 'Problem getting plugin list from {}. Error: {}'.format(self.torrent_client, output['error'])
             print(msg)
             self.send_log(msg, 'error')
             self.active_plugins = []
@@ -396,12 +479,6 @@ class influxdbSeedbox():
 
         self.active_plugins = output['result']
 
-    def parse_torrent_data(self):
-        """
-        Parse the list of active torrents and pull out the data we will send to InfluxDB
-        :return:
-        """
-        pass
 
     def process_tracker_list(self):
         """
@@ -409,7 +486,12 @@ class influxdbSeedbox():
         downloading from each tracker
         :return:
         """
+
+        if len(self.torrent_list) == 0:
+            return None
+
         trackers = {}
+        json_list = []
 
         # The tracker list is a dict of torrent hashes.  The value for each hash is another dict with data about the
         # torrent
@@ -437,13 +519,14 @@ class influxdbSeedbox():
                         'total_ratio': total_ratio
                     },
                     'tags': {
-                        'host': self.config.hostname,
+                        'host': self.hostname,
                         'tracker': k
                     }
                 }
             ]
-
-            self.write_influx_data(tracker_json)
+            #return tracker_json
+            json_list.append(tracker_json)
+        return json_list
 
 
     def process_torrents(self):
@@ -451,6 +534,11 @@ class influxdbSeedbox():
         Go through the list of torrents, format them in JSON and send to influx
         :return:
         """
+        if len(self.torrent_list) == 0:
+            return None
+
+        json_list = []
+
         for hash, data in self.torrent_list.items():
 
             torrent_json = [
@@ -471,25 +559,16 @@ class influxdbSeedbox():
                     },
                     'tags': {
 
-                        'host': self.config.hostname,
+                        'host': self.hostname,
                         'hash': hash,
                         'tracker': data['tracker_host'],
 
                     }
                 }
             ]
-
-            self.write_influx_data(torrent_json)
-
-
-    def run(self):
-        while True:
-            self.get_all_torrents()
-            self.process_torrents()
-            self.get_active_plugins()
-            self.process_tracker_list()
-            time.sleep(self.delay)
-
+            #return torrent_json
+            json_list.append(torrent_json)
+        return json_list
 
 def main():
 
