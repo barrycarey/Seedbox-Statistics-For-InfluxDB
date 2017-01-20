@@ -1,6 +1,8 @@
 **Seedbox Statistics For Influxdb**
 ------------------------------
 
+![Screenshot](https://puu.sh/ttcxJ/2919760fa3.PNG)
+
 This tool will allow you to send stats from a torrent client to InfluxDB for displaying in Grafana
 
 **Support Clients**
