@@ -55,4 +55,5 @@ class rTorrentClient(TorrentClient):
         Return list of all torrents
         :return:
         """
+        self._authenticate() # We need to get another Rtorrent object so we get a fresh list of torrents
         self._build_torrent_list(self.rtorrent.torrents)
