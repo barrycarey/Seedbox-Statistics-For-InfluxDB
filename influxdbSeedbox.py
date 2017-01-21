@@ -11,9 +11,15 @@ import json
 import gzip
 from urllib.request import Request, URLError, urlopen
 import socket
+from bs4 import BeautifulSoup
+import urllib.request
+from torrentclients import UTorrentClient, DelugeClient
+
 
 # TODO Move urlopen login in each method call to one central method
 # TODO Keep track of tracker overall ratios
+# TODO Add print to _send_log.  Will but down on logging and print code in methods
+
 __author__ = 'barry'
 class configManager():
 
@@ -21,7 +27,7 @@ class configManager():
 
     def __init__(self, config):
 
-        self.valid_torrent_clients = ['deluge']
+        self.valid_torrent_clients = ['deluge', 'utorrent']
 
         print('Loading Configuration File {}'.format(config))
         config_file = os.path.join(os.getcwd(), config)
@@ -63,7 +69,7 @@ class configManager():
         self.logging_censor = self.config['LOGGING'].getboolean('CensorLogs', fallback=True)
 
         # TorrentClient
-        self.tor_client = self.config['TORRENTCLIENT'].get('Client', fallback=None)
+        self.tor_client = self.config['TORRENTCLIENT'].get('Client', fallback=None).lower()
         self.tor_client_user = self.config['TORRENTCLIENT'].get('Username', fallback=None)
         self.tor_client_password = self.config['TORRENTCLIENT'].get('Password', fallback=None)
         self.tor_client_url = self.config['TORRENTCLIENT'].get('Url', fallback=None)
@@ -113,6 +119,13 @@ class influxdbSeedbox():
         if self.config.tor_client == 'deluge':
             print('Generating Deluge Client')
             self.tor_client = DelugeClient(self.send_log,
+                                           username=self.config.tor_client_user,
+                                           password=self.config.tor_client_password,
+                                           url=self.config.tor_client_url,
+                                           hostname=self.config.hostname)
+        elif self.config.tor_client == 'utorrent':
+            print('Generating uTorrent Client')
+            self.tor_client = UTorrentClient(self.send_log,
                                            username=self.config.tor_client_user,
                                            password=self.config.tor_client_password,
                                            url=self.config.tor_client_url,
@@ -224,351 +237,14 @@ class influxdbSeedbox():
             torrent_json = self.tor_client.process_torrents()
             if torrent_json:
                 self.write_influx_data(torrent_json)
-            self.tor_client.get_active_plugins()
+            #self.tor_client.get_active_plugins()
             tracker_json = self.tor_client.process_tracker_list()
             if tracker_json:
                 self.write_influx_data(tracker_json)
             time.sleep(self.delay)
 
 
-class TorrentClient:
-    """
-    Stub class to base individual torrent client classes on
-    """
-    def __init__(self, logger, username=None, password=None, url=None, hostname=None):
 
-        self.send_log = logger
-        self.hostname = hostname
-
-        # TODO Validate we're not getting None
-
-        # API Data
-        self.username = username
-        self.password = password
-        self.url = url
-
-        # Torrent Data
-        self.torrent_client = None
-        self.torrent_list = {}
-        self.trackers = []
-        self.active_plugins = []
-
-    def _create_request(self):
-        raise NotImplementedError
-
-    def _process_response(self, res):
-        raise NotImplementedError
-
-    def _authenticate(self):
-        raise NotImplementedError
-
-    def get_all_torrents(self):
-        raise NotImplementedError
-
-    def get_active_plugins(self):
-        raise NotImplementedError
-
-    def process_tracker_list(self):
-        raise NotImplementedError
-
-    def process_torrents(self):
-        raise NotImplementedError
-
-
-class DelugeClient(TorrentClient):
-
-    def __init__(self, logger, username=None, password=None, url=None, hostname=None):
-        TorrentClient.__init__(self, logger, username=username, password=password, url=url, hostname=hostname)
-
-        self.session_id = None
-        self.request_id = 0
-        self.torrent_client = 'Deluge'
-
-        self._authenticate()
-
-    def _add_common_headers(self, req):
-        """
-        Add common headers needed to make the API requests
-        :return: request
-        """
-
-        self.send_log('Adding headers to request', 'info')
-
-        headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }
-
-        for k, v in headers.items():
-            req.add_header(k, v)
-
-        if self.session_id:
-            req.add_header('Cookie', self.session_id)
-
-        return req
-
-    def _check_session(self):
-        """
-        Make sure we still have an active session. If not, authenticate again
-        :return:
-        """
-
-        self.send_log('Checking Session State', 'debug')
-
-        req = self._create_request(method='auth.check_session', params=[''])
-
-        try:
-            res = urlopen(req)
-        except URLError as e:
-            msg = 'Failed To check session state.  HTTP Error'
-            self.send_log(msg, 'error')
-            print(msg)
-            print(e)
-            return None
-
-        result = self._process_response(res)
-
-        if not result:
-            self.send_log('No active session. Attempting to re-authenticate', 'error')
-            self._authenticate()
-            return
-
-        self.send_log('Session is still active', 'debug')
-
-    def _create_request(self, method=None, params=None):
-        """
-        Creates and returns a Request object, Allowing us to track request IDs in one spot.
-        We also add the common headers here
-        :return:
-        """
-
-        # TODO Validate method and params
-        data = json.dumps({
-            'id': self.request_id,
-            'method': method,
-            'params': params
-        }).encode('utf-8')
-
-        req = self._add_common_headers(Request(self.url, data=data))
-        self.request_id += 1
-
-        return req
-
-    def _process_response(self, res):
-        """
-        Take the response object and return JSON
-        :param res:
-        :return:
-        """
-        # TODO Figure out exceptions here
-        if res.headers['Content-Encoding'] == 'gzip':
-            self.send_log('Detected gzipped response', 'debug')
-            raw_output = gzip.decompress(res.read()).decode('utf-8')
-        else:
-            self.send_log('Detected other type of response encoding: {}'.format(res.headers['Content-Encoding']), 'debug')
-            raw_output = res.read().decode('utf-8')
-
-        json_output = json.loads(raw_output)
-
-        return json_output if json_output['result'] else None
-
-    def _authenticate(self):
-        """
-        Authenticate against torrent client so we can make future requests
-        If we return from this method we assume we are authenticated for all future requests
-        :return: None
-        """
-        msg = 'Attempting to authenticate against {} API'.format(self.torrent_client)
-        self.send_log(msg, 'info')
-        print(msg)
-
-        req = self._create_request(method='auth.login', params=[self.password])
-
-        try:
-            res = urlopen(req)
-        except URLError as e:
-            msg = 'Failed To Authenticate with torrent client.  HTTP Error'
-            self.send_log(msg, 'critical')
-            print(msg)
-            print(e)
-            sys.exit(1)
-
-        # We need the session ID to send with future requests
-        self.session_id = res.headers['Set-Cookie'].split(';')[0]
-
-        output = self._process_response(res)
-
-        if output and not output['result']:
-            msg = 'Failed to authenticate to {} API. Aborting'.format(self.torrent_client)
-            self.send_log(msg, 'error')
-            print(msg)
-            sys.exit(1)
-
-        msg = 'Successfully Authenticated With {} API'.format(self.torrent_client)
-        self.send_log(msg, 'info')
-        print(msg)
-
-    def get_all_torrents(self):
-        """
-        Return a list of all torrents from the API
-        :return:
-        """
-
-        req = self._create_request(method='core.get_torrents_status', params=['',''])
-        try:
-            self._check_session() # Make sure we still have an active session
-            res = urlopen(req)
-        except URLError as e:
-            msg = 'Failed to get list of torrents.  HTTP Error'
-            self.send_log(msg, 'error')
-            print(msg)
-            print(e)
-            self.torrent_list = []
-            return
-
-        output = self._process_response(res)
-        if output['error']:
-            msg = 'Problem getting torrent list from {}. Error: {}'.format(self.torrent_client, output['error'])
-            print(msg)
-            self.send_log(msg, 'error')
-            self.torrent_list = []
-            return
-
-        self.torrent_list = output['result']
-
-        # Temp trap to find weird characters that won't decode
-        """
-        for k, v in output['result'].items():
-            print(k)
-            print(v.keys())
-            for k2, v2 in v.items():
-                try:
-                    print('Key: ' + k2)
-                    print('Value: ' + str(v2))
-                except Exception as e:
-                    print('test')
-                    print(e)
-        """
-
-
-    def get_active_plugins(self):
-        """
-        Return all active plugins
-        :return:
-        """
-
-        req = self._create_request(method='core.get_enabled_plugins', params=[])
-        try:
-            self._check_session() # Make sure we still have an active session
-            res = urlopen(req)
-        except URLError as e:
-            msg = 'Failed to get list of plugins.  HTTP Error'
-            self.send_log(msg, 'error')
-            print(msg)
-            print(e)
-            self.active_plugins = []
-            return
-
-        output = self._process_response(res)
-        if output['error']:
-            msg = 'Problem getting plugin list from {}. Error: {}'.format(self.torrent_client, output['error'])
-            print(msg)
-            self.send_log(msg, 'error')
-            self.active_plugins = []
-            return
-
-        self.active_plugins = output['result']
-
-
-    def process_tracker_list(self):
-        """
-        Loop through each torrent and pull the tracker data.  This will allow us to track how many torrents we are
-        downloading from each tracker
-        :return:
-        """
-
-        if len(self.torrent_list) == 0:
-            return None
-
-        trackers = {}
-        json_list = []
-
-        # The tracker list is a dict of torrent hashes.  The value for each hash is another dict with data about the
-        # torrent
-        for hash, data in self.torrent_list.items():
-            if data['tracker_host'] in trackers:
-                trackers[data['tracker_host']]['total_torrents'] += 1
-                trackers[data['tracker_host']]['total_upload'] += data['total_uploaded']
-                trackers[data['tracker_host']]['total_download'] += data['all_time_download']
-            else:
-                trackers[data['tracker_host']] = {}
-                trackers[data['tracker_host']]['total_torrents'] = 1
-                trackers[data['tracker_host']]['total_upload'] = data['total_uploaded']
-                trackers[data['tracker_host']]['total_download'] = data['all_time_download']
-
-        for k, v in trackers.items():
-
-            total_ratio = round(v['total_upload'] / v['total_download'], 3)
-            tracker_json = [
-                {
-                    'measurement': 'trackers',
-                    'fields': {
-                        'total_torrents': v['total_torrents'],
-                        'total_upload': v['total_upload'],
-                        'total_download': v['total_download'],
-                        'total_ratio': total_ratio
-                    },
-                    'tags': {
-                        'host': self.hostname,
-                        'tracker': k
-                    }
-                }
-            ]
-            #return tracker_json
-            json_list.append(tracker_json)
-        return json_list
-
-
-    def process_torrents(self):
-        """
-        Go through the list of torrents, format them in JSON and send to influx
-        :return:
-        """
-        if len(self.torrent_list) == 0:
-            return None
-
-        json_list = []
-
-        for hash, data in self.torrent_list.items():
-
-            torrent_json = [
-                {
-                    'measurement': 'torrents',
-                    'fields': {
-                        'hash': hash,
-                        'tracker': data['tracker_host'],
-                        'name': data['name'],
-                        'state': data['state'],
-                        'uploaded': data['total_uploaded'],
-                        'downloaded': data['all_time_download'],
-                        'ratio': round(data['ratio'], 2),
-                        'progress': round(data['progress'], 2),
-                        'seeds': data['total_seeds'],
-                        'size': data['total_size'],
-                        'total_files': data['num_files'],
-                    },
-                    'tags': {
-
-                        'host': self.hostname,
-                        'hash': hash,
-                        'tracker': data['tracker_host'],
-
-                    }
-                }
-            ]
-            #return torrent_json
-            json_list.append(torrent_json)
-        return json_list
 
 def main():
 
