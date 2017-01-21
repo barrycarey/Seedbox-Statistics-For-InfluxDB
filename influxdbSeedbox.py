@@ -2,18 +2,13 @@ import configparser
 import os
 import sys
 import argparse
-from influxdb import InfluxDBClient
-from influxdb.exceptions import InfluxDBClientError, InfluxDBServerError
 import time
 import logging
 import re
-import json
-import gzip
-from urllib.request import Request, URLError, urlopen
 import socket
-from bs4 import BeautifulSoup
-import urllib.request
-from torrentclients import UTorrentClient, DelugeClient
+
+from influxdb import InfluxDBClient
+from influxdb.exceptions import InfluxDBClientError, InfluxDBServerError
 
 
 # TODO Move urlopen login in each method call to one central method
@@ -117,6 +112,7 @@ class influxdbSeedbox():
         self._set_logging()
 
         if self.config.tor_client == 'deluge':
+            from clients.deluge import DelugeClient
             print('Generating Deluge Client')
             self.tor_client = DelugeClient(self.send_log,
                                            username=self.config.tor_client_user,
@@ -124,6 +120,7 @@ class influxdbSeedbox():
                                            url=self.config.tor_client_url,
                                            hostname=self.config.hostname)
         elif self.config.tor_client == 'utorrent':
+            from clients.utorrent import UTorrentClient
             print('Generating uTorrent Client')
             self.tor_client = UTorrentClient(self.send_log,
                                            username=self.config.tor_client_user,
