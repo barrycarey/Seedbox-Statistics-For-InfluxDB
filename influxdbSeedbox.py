@@ -13,6 +13,7 @@ from influxdb.exceptions import InfluxDBClientError, InfluxDBServerError
 
 # TODO Move urlopen login in each method call to one central method
 # TODO Validate that we get a valid URL from config
+# TODO Deal with multiple trackers per torrent
 
 __author__ = 'barry'
 class configManager():
@@ -21,7 +22,7 @@ class configManager():
 
     def __init__(self, config):
 
-        self.valid_torrent_clients = ['deluge', 'utorrent']
+        self.valid_torrent_clients = ['deluge', 'utorrent', 'rtorrent']
         self.valid_log_levels = {
             'DEBUG': 0,
             'INFO': 1,
@@ -127,6 +128,7 @@ class influxdbSeedbox():
                                            password=self.config.tor_client_password,
                                            url=self.config.tor_client_url,
                                            hostname=self.config.hostname)
+
         elif self.config.tor_client == 'utorrent':
             from clients.utorrent import UTorrentClient
             print('Generating uTorrent Client')
@@ -135,6 +137,15 @@ class influxdbSeedbox():
                                            password=self.config.tor_client_password,
                                            url=self.config.tor_client_url,
                                            hostname=self.config.hostname)
+
+        elif self.config.tor_client == 'rtorrent':
+            from clients.rtorrent import rTorrentClient
+            print('Generating rTorrent Client')
+            self.tor_client = rTorrentClient(self.send_log,
+                                             username=None,
+                                             password=None,
+                                             url=self.config.tor_client_url,
+                                             hostname=self.config.hostname)
 
     def _set_logging(self):
         """
@@ -257,6 +268,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="A tool to send Torrent Client statistics to InfluxDB")
     parser.add_argument('--config', default='config.ini', dest='config', help='Specify a custom location for the config file')
+    parser.add_argument('--silent', default=False, dest='config', help='Surpress All Output')
     args = parser.parse_args()
     monitor = influxdbSeedbox(config=args.config)
     monitor.run()

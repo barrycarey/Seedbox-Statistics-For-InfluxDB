@@ -68,8 +68,7 @@ class UTorrentClient(TorrentClient):
         :return:
         """
 
-        msg = 'Structuring list of torrents'
-        self.send_log(msg, 'debug')
+        self.send_log('Structuring list of torrents', 'debug')
 
         for torrent in torrents:
             self.torrent_list[torrent[0]] = {}
