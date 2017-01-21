@@ -9,7 +9,10 @@ import re
 import gzip
 
 # TODO Deal with slashes in client URL
-# TODO Unify the final torrent list so it can be built into json structure by parent instead of each child
+
+"""
+Base class for torrent clients
+"""
 
 class TorrentClient:
     """
@@ -121,7 +124,7 @@ class TorrentClient:
                 trackers[data['tracker']]['total_size'] = data['total_size']
 
         for k, v in trackers.items():
-            print(v)
+
             total_ratio = round(v['total_uploaded'] / v['total_size'], 3)
             tracker_json = [
                 {

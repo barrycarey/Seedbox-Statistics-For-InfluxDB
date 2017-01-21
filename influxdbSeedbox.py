@@ -12,8 +12,7 @@ from influxdb.exceptions import InfluxDBClientError, InfluxDBServerError
 
 
 # TODO Move urlopen login in each method call to one central method
-# TODO Keep track of tracker overall ratios
-# TODO Add print to _send_log.  Will but down on logging and print code in methods
+# TODO Validate that we get a valid URL from config
 
 __author__ = 'barry'
 class configManager():
@@ -23,6 +22,14 @@ class configManager():
     def __init__(self, config):
 
         self.valid_torrent_clients = ['deluge', 'utorrent']
+        self.valid_log_levels = {
+            'DEBUG': 0,
+            'INFO': 1,
+            'WARNING': 2,
+            'ERROR': 3,
+            'CRITICAL': 4
+        }
+
 
         print('Loading Configuration File {}'.format(config))
         config_file = os.path.join(os.getcwd(), config)
@@ -59,9 +66,10 @@ class configManager():
 
         #Logging
         self.logging = self.config['LOGGING'].getboolean('Enable', fallback=False)
-        self.logging_level = self.config['LOGGING']['Level'].lower()
+        self.logging_level = self.config['LOGGING']['Level'].upper()
         self.logging_file = self.config['LOGGING']['LogFile']
         self.logging_censor = self.config['LOGGING'].getboolean('CensorLogs', fallback=True)
+        self.logging_print_threshold = self.config['LOGGING'].getint('PrintThreshold', fallback=2)
 
         # TorrentClient
         self.tor_client = self.config['TORRENTCLIENT'].get('Client', fallback=None).lower()
@@ -81,14 +89,14 @@ class configManager():
         :return:
         """
 
-        valid_levels = ['critical', 'error', 'warning', 'info', 'debug']
-        if self.logging_level in valid_levels:
+
+        if self.logging_level in self.valid_log_levels:
             self.logging_level = self.logging_level.upper()
             return
         else:
             print('Invalid logging level provided. {}'.format(self.logging_level))
             print('Logging will be disabled')
-            print('Valid options are: {}'.format(', '.join(valid_levels)))
+            print('Valid options are: {}'.format(', '.join(self.valid_log_levels)))
             self.logging = None
 
 
@@ -154,6 +162,9 @@ class influxdbSeedbox():
         if not self.logger:
             return
 
+        if self.output and self.config.valid_log_levels[level.upper()] >= self.config.logging_print_threshold:
+            print(msg)
+
         # Make sure a good level was given
         if not hasattr(self.logger, level):
             self.logger.error('Invalid log level provided to send_log')
@@ -189,8 +200,7 @@ class influxdbSeedbox():
         :param json_data:
         :return:
         """
-        if self.output:
-            print(json_data)
+        self.send_log(json_data, 'debug')
 
         # TODO This bit of fuckery may turn out to not be a good idea.
         """
@@ -209,9 +219,9 @@ class influxdbSeedbox():
             self.influx_client.write_points(json_data)
         except (InfluxDBClientError, ConnectionError, InfluxDBServerError) as e:
             if hasattr(e, 'code') and e.code == 404:
-                print('Database {} Does Not Exist.  Attempting To Create')
 
-                self.send_log('Database {} Does Not Exist.  Attempting To Create', 'error')
+                msg = 'Database {} Does Not Exist.  Attempting To Create'.format(self.config.influx_database)
+                self.send_log(msg, 'error')
 
                 # TODO Grab exception here
                 self.influx_client.create_database(self.config.influx_database)

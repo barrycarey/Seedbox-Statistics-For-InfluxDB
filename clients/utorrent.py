@@ -25,8 +25,9 @@ class UTorrentClient(TorrentClient):
         handler = urllib.request.HTTPBasicAuthHandler(pwd_mgr)
         opener = urllib.request.build_opener(handler)
         token_url = self.url + '/token.html'
-        print('Attempting To Get Token From URL {}'.format(token_url))
+
         self.send_log('Attempting To Get Token From URL {}'.format(token_url), 'info')
+
         opener.open(token_url)
         urllib.request.install_opener(opener)
         req = Request(self.url + '/token.html')
@@ -34,7 +35,7 @@ class UTorrentClient(TorrentClient):
         self.cookie = res.headers['Set-Cookie'].split(';')[0]
         soup = BeautifulSoup(res, 'html.parser')
         token = soup.find("div", {"id": "token"}).text
-        print('Got Token: ' + token)
+        self.send_log('Got Token: {}'.format(token), 'info')
         self.token = token
 
     def _add_common_headers(self, req, headers=None):
@@ -54,7 +55,8 @@ class UTorrentClient(TorrentClient):
     def _create_request(self, method=None, params=None):
         # TODO Validate that we get params
         url = self.url + '/?token={}&{}'.format(self.token, params)
-        print('Creating request with url: ' + url)
+        msg = 'Creating request with url: {}'.format(url)
+        self.send_log(msg, 'debug')
 
         req = self._add_common_headers(Request(url))
 
@@ -91,15 +93,14 @@ class UTorrentClient(TorrentClient):
         """
 
         msg = 'Attempting to get tracker for hash {}'.format(hash)
-        print(msg)
         self.send_log(msg, 'debug')
+
         req = self._create_request(params='action=getprops&hash={}'.format(hash))
 
         try:
             res = urlopen(req).read().decode('utf-8')
         except URLError as e:
             msg = 'Failed to get trackers from URL for hash {}'.format(hash)
-            print(msg)
             self.send_log(msg, 'error')
             return 'N/A'
 
@@ -124,7 +125,6 @@ class UTorrentClient(TorrentClient):
         """
 
         msg = 'Attempting to get file list for hash {}'.format(hash)
-        print(msg)
         self.send_log(msg, 'debug')
 
         req = self._create_request(params='action=getfiles&hash={}'.format(hash))
@@ -133,7 +133,6 @@ class UTorrentClient(TorrentClient):
             res = urlopen(req).read().decode('utf-8')
         except URLError as e:
             msg = 'Failed to get file list from URL for hash {}'.format(hash)
-            print(msg)
             self.send_log(msg, 'error')
             return 'N/A'
 
@@ -148,8 +147,7 @@ class UTorrentClient(TorrentClient):
         """
 
         msg = 'Attempting to get all torrents from {}'.format(self.url)
-        print(msg)
-        self.send_log(msg, 'info')
+        self.send_log(msg, 'debug')
 
         req = self._create_request(params='list=1')
 
@@ -158,7 +156,6 @@ class UTorrentClient(TorrentClient):
             final = res.read().decode('utf-8')
         except URLError as e:
             msg = 'Failed to get list of all torrents'
-            print(msg)
             print(e)
             self.send_log(msg, 'error')
             self.torrent_list = {}

@@ -52,7 +52,6 @@ class DelugeClient(TorrentClient):
         except URLError as e:
             msg = 'Failed To check session state.  HTTP Error'
             self.send_log(msg, 'error')
-            print(msg)
             print(e)
             return None
 
@@ -110,7 +109,6 @@ class DelugeClient(TorrentClient):
         """
         msg = 'Attempting to authenticate against {} API'.format(self.torrent_client)
         self.send_log(msg, 'info')
-        print(msg)
 
         req = self._create_request(method='auth.login', params=[self.password])
 
@@ -119,7 +117,6 @@ class DelugeClient(TorrentClient):
         except URLError as e:
             msg = 'Failed To Authenticate with torrent client.  HTTP Error'
             self.send_log(msg, 'critical')
-            print(msg)
             print(e)
             sys.exit(1)
 
@@ -136,7 +133,7 @@ class DelugeClient(TorrentClient):
 
         msg = 'Successfully Authenticated With {} API'.format(self.torrent_client)
         self.send_log(msg, 'info')
-        print(msg)
+
 
     def _build_torrent_list(self, torrents):
         """
@@ -173,7 +170,6 @@ class DelugeClient(TorrentClient):
         except URLError as e:
             msg = 'Failed to get list of torrents.  HTTP Error'
             self.send_log(msg, 'error')
-            print(msg)
             print(e)
             self.torrent_list = {}
             return
@@ -181,7 +177,6 @@ class DelugeClient(TorrentClient):
         output = self._process_response(res)
         if output['error']:
             msg = 'Problem getting torrent list from {}. Error: {}'.format(self.torrent_client, output['error'])
-            print(msg)
             self.send_log(msg, 'error')
             self.torrent_list = {}
             return
