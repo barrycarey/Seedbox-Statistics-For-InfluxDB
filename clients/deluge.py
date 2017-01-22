@@ -1,8 +1,9 @@
-from clients.torrentclient import TorrentClient
 from urllib.request import Request, urlopen, URLError
 import json
 import sys
 import gzip
+
+from clients.torrentclient import TorrentClient
 
 
 class DelugeClient(TorrentClient):
@@ -21,7 +22,7 @@ class DelugeClient(TorrentClient):
         Add common headers needed to make the API requests
         :return: request
         """
-        # TODO pass this to parent
+
         self.send_log('Adding headers to request', 'debug')
 
         headers = {
@@ -29,13 +30,10 @@ class DelugeClient(TorrentClient):
             'Accept': 'application/json'
         }
 
-        for k, v in headers.items():
-            req.add_header(k, v)
-
         if self.session_id:
-            req.add_header('Cookie', self.session_id)
+            headers['Cookie'] = self.session_id
 
-        return req
+        return TorrentClient._add_common_headers(self, req, headers=headers)
 
     def _check_session(self):
         """
@@ -68,7 +66,6 @@ class DelugeClient(TorrentClient):
         :return:
         """
 
-        # TODO Validate method and params
         data = json.dumps({
             'id': self.request_id,
             'method': method,
@@ -193,7 +190,6 @@ class DelugeClient(TorrentClient):
                     print('test')
                     print(e)
         """
-
 
     def get_active_plugins(self):
         """
