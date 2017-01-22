@@ -20,7 +20,7 @@ class configManager():
 
     #TODO Validate given client url
 
-    def __init__(self, config):
+    def __init__(self, silent, config):
 
         self.valid_torrent_clients = ['deluge', 'utorrent', 'rtorrent']
         self.valid_log_levels = {
@@ -30,9 +30,11 @@ class configManager():
             'ERROR': 3,
             'CRITICAL': 4
         }
+        self.silent = silent
 
+        if not self.silent:
+            print('Loading Configuration File {}'.format(config))
 
-        print('Loading Configuration File {}'.format(config))
         config_file = os.path.join(os.getcwd(), config)
         if os.path.isfile(config_file):
             self.config = configparser.ConfigParser()
@@ -44,7 +46,8 @@ class configManager():
         self._load_config_values()
         self._validate_logging_level()
         self._validate_torrent_client()
-        print('Configuration Successfully Loaded')
+        if not self.silent:
+            print('Configuration Successfully Loaded')
 
     def _load_config_values(self):
 
@@ -95,17 +98,17 @@ class configManager():
             self.logging_level = self.logging_level.upper()
             return
         else:
-            print('Invalid logging level provided. {}'.format(self.logging_level))
-            print('Logging will be disabled')
-            print('Valid options are: {}'.format(', '.join(self.valid_log_levels)))
+            if not self.silent:
+                print('Invalid logging level provided. {}'.format(self.logging_level))
+                print('Logging will be disabled')
             self.logging = None
 
 
 class influxdbSeedbox():
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, silent=None):
 
-        self.config = configManager(config=config)
+        self.config = configManager(silent, config=config)
 
         self.output = self.config.output
         self.logger = None
@@ -122,7 +125,8 @@ class influxdbSeedbox():
 
         if self.config.tor_client == 'deluge':
             from clients.deluge import DelugeClient
-            print('Generating Deluge Client')
+            if self.output:
+                print('Generating Deluge Client')
             self.tor_client = DelugeClient(self.send_log,
                                            username=self.config.tor_client_user,
                                            password=self.config.tor_client_password,
@@ -131,16 +135,18 @@ class influxdbSeedbox():
 
         elif self.config.tor_client == 'utorrent':
             from clients.utorrent import UTorrentClient
-            print('Generating uTorrent Client')
+            if self.output:
+                print('Generating uTorrent Client')
             self.tor_client = UTorrentClient(self.send_log,
-                                           username=self.config.tor_client_user,
-                                           password=self.config.tor_client_password,
-                                           url=self.config.tor_client_url,
-                                           hostname=self.config.hostname)
+                                             username=self.config.tor_client_user,
+                                             password=self.config.tor_client_password,
+                                             url=self.config.tor_client_url,
+                                             hostname=self.config.hostname)
 
         elif self.config.tor_client == 'rtorrent':
             from clients.rtorrent import rTorrentClient
-            print('Generating rTorrent Client')
+            if self.output:
+                print('Generating rTorrent Client')
             self.tor_client = rTorrentClient(self.send_log,
                                              username=None,
                                              password=None,
@@ -154,7 +160,8 @@ class influxdbSeedbox():
         """
 
         if self.config.logging:
-            print('Logging is enabled.  Log output will be sent to {}'.format(self.config.logging_file))
+            if self.output:
+                print('Logging is enabled.  Log output will be sent to {}'.format(self.config.logging_file))
             self.logger = logging.getLogger(__name__)
             self.logger.setLevel(self.config.logging_level)
             formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
@@ -211,7 +218,7 @@ class influxdbSeedbox():
         :param json_data:
         :return:
         """
-        self.send_log(json_data, 'debug')
+        self.send_log(json_data, 'info')
 
         # TODO This bit of fuckery may turn out to not be a good idea.
         """
@@ -268,9 +275,10 @@ def main():
 
     parser = argparse.ArgumentParser(description="A tool to send Torrent Client statistics to InfluxDB")
     parser.add_argument('--config', default='config.ini', dest='config', help='Specify a custom location for the config file')
-    parser.add_argument('--silent', default=False, dest='config', help='Surpress All Output')
+    # Silent flag allows output prior to the config being loaded to also be suppressed
+    parser.add_argument('--silent', action='store_true', help='Surpress All Output, regardless of config settings')
     args = parser.parse_args()
-    monitor = influxdbSeedbox(config=args.config)
+    monitor = influxdbSeedbox(silent=args.silent, config=args.config)
     monitor.run()
 
 

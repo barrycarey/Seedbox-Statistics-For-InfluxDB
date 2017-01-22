@@ -116,16 +116,17 @@ class TorrentClient:
                 trackers[data['tracker']]['total_uploaded'] += data['total_uploaded']
                 trackers[data['tracker']]['total_downloaded'] += data['total_downloaded']
                 trackers[data['tracker']]['total_size'] += data['total_size']
+                trackers[data['tracker']]['total_ratio'] += data['ratio']
             else:
                 trackers[data['tracker']] = {}
                 trackers[data['tracker']]['total_torrents'] = 1
                 trackers[data['tracker']]['total_uploaded'] = data['total_uploaded']
                 trackers[data['tracker']]['total_downloaded'] = data['total_downloaded']
                 trackers[data['tracker']]['total_size'] = data['total_size']
+                trackers[data['tracker']]['total_ratio'] = data['ratio']
 
         for k, v in trackers.items():
 
-            total_ratio = round(v['total_uploaded'] / v['total_size'], 3)
             tracker_json = [
                 {
                     'measurement': 'trackers',
@@ -133,7 +134,8 @@ class TorrentClient:
                         'total_torrents': v['total_torrents'],
                         'total_upload': v['total_uploaded'],
                         'total_download': v['total_downloaded'],
-                        'total_ratio': total_ratio
+                        'total_ratio': v['total_ratio'],
+                        'tracker': k,
                     },
                     'tags': {
                         'host': self.hostname,

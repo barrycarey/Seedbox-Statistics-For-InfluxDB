@@ -22,7 +22,7 @@ class DelugeClient(TorrentClient):
         :return: request
         """
 
-        self.send_log('Adding headers to request', 'info')
+        self.send_log('Adding headers to request', 'debug')
 
         headers = {
             'Content-Type': 'application/json',
@@ -99,7 +99,7 @@ class DelugeClient(TorrentClient):
 
         json_output = json.loads(raw_output)
 
-        return json_output if json_output['result'] else None
+        return json_output
 
     def _authenticate(self):
         """
@@ -120,15 +120,19 @@ class DelugeClient(TorrentClient):
             print(e)
             sys.exit(1)
 
-        # We need the session ID to send with future requests
-        self.session_id = res.headers['Set-Cookie'].split(';')[0]
-
         output = self._process_response(res)
 
-        if output and not output['result']:
-            msg = 'Failed to authenticate to {} API. Aborting'.format(self.torrent_client)
-            self.send_log(msg, 'error')
-            print(msg)
+        # If response has result but it's None than the login failed
+        if 'result' in output and not output['result']:
+            msg = 'Failed to authenticate to {} API. Check your password and try again.'.format(self.torrent_client)
+            self.send_log(msg, 'critical')
+            sys.exit(1)
+
+        # We need the session ID to send with future requests
+        if 'Set-Cookie' in res.headers:
+            self.session_id = res.headers['Set-Cookie'].split(';')[0]
+        else:
+            self.send_log('No authentication cookie in response.  Aborting', 'critical')
             sys.exit(1)
 
         msg = 'Successfully Authenticated With {} API'.format(self.torrent_client)
@@ -150,7 +154,7 @@ class DelugeClient(TorrentClient):
             self.torrent_list[hash]['progress'] = round(data['progress'], 2)
             self.torrent_list[hash]['total_downloaded'] = data['all_time_download']
             self.torrent_list[hash]['total_uploaded'] = data['total_uploaded']
-            self.torrent_list[hash]['ratio'] = round(data['ratio'], 2)
+            self.torrent_list[hash]['ratio'] = data['ratio']
             self.torrent_list[hash]['total_seeds'] = data['total_seeds']
             self.torrent_list[hash]['state'] = data['state']
             self.torrent_list[hash]['tracker'] = data['tracker_host']
