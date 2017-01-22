@@ -1,12 +1,6 @@
 __author__ = 'barry'
-import urllib.request
-from urllib.request import Request, urlopen, URLError
-from urllib.parse import urlsplit
-from bs4 import BeautifulSoup
-import json
+from urllib.request import urlopen, URLError
 import sys
-import re
-import gzip
 
 # TODO Deal with slashes in client URL
 
@@ -95,7 +89,12 @@ class TorrentClient:
         return res
 
     def _process_response(self, res):
-        # TODO May only be needed for deluge.  Remove from parent if that's the case
+        """
+        Perform response handling for the specific torrent client.  Each line requires different processing/decoding of
+        the response
+        :param res:
+        :return:
+        """
         raise NotImplementedError
 
     def _authenticate(self):

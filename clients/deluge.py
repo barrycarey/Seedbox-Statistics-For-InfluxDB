@@ -72,6 +72,8 @@ class DelugeClient(TorrentClient):
             'params': params
         }).encode('utf-8')
 
+        self.send_log('Calling Deluge API with method {}'.format(method), 'debug')
+
         req = self._add_common_headers(Request(self.url, data=data))
         self.request_id += 1
 
