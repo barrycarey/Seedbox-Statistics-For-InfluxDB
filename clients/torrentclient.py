@@ -47,7 +47,7 @@ class TorrentClient:
         if not headers:
             return req
 
-        self.send_log('Adding headers to request', 'info')
+        self.send_log('Adding headers to request', 'debug')
         for k, v in headers.items():
             req.add_header(k, v)
 
@@ -61,6 +61,38 @@ class TorrentClient:
         :return: Request
         """
         raise NotImplementedError
+
+    def _make_request(self, req, genmsg='', fail_msg='', abort_on_fail=None):
+        """
+        Make the web request.  Doing it here avoids a lot of duplicate exception handling
+        :param gen_msg: Message we can print to console or logs so we know about the request
+        :param fail_msg: Message we can print to console or logs on failure
+        :param abort_on_fail: Exit on failed request
+        :return: Response
+        """
+
+        if genmsg:
+            self.send_log(genmsg, 'info')
+
+        try:
+            res = urlopen(req)
+        except URLError as e:
+
+            if fail_msg:
+                msg = fail_msg
+            else:
+                msg = 'Failed to make request'
+
+            if abort_on_fail:
+                self.send_log(msg, 'critical')
+                self.send_log('Aborting', 'critical')
+                sys.exit(1)
+            else:
+                self.send_log(msg, 'error')
+
+            return None
+
+        return res
 
     def _process_response(self, res):
         # TODO May only be needed for deluge.  Remove from parent if that's the case

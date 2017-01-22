@@ -21,7 +21,7 @@ class DelugeClient(TorrentClient):
         Add common headers needed to make the API requests
         :return: request
         """
-
+        # TODO pass this to parent
         self.send_log('Adding headers to request', 'debug')
 
         headers = {
@@ -47,13 +47,10 @@ class DelugeClient(TorrentClient):
 
         req = self._create_request(method='auth.check_session', params=[''])
 
-        try:
-            res = urlopen(req)
-        except URLError as e:
-            msg = 'Failed To check session state.  HTTP Error'
-            self.send_log(msg, 'error')
-            print(e)
-            return None
+        res = self._make_request(req, fail_msg='Failed To check session state.  HTTP Error')
+
+        if not res:
+            return
 
         result = self._process_response(res)
 
@@ -108,17 +105,10 @@ class DelugeClient(TorrentClient):
         :return: None
         """
         msg = 'Attempting to authenticate against {} API'.format(self.torrent_client)
-        self.send_log(msg, 'info')
 
         req = self._create_request(method='auth.login', params=[self.password])
 
-        try:
-            res = urlopen(req)
-        except URLError as e:
-            msg = 'Failed To Authenticate with torrent client.  HTTP Error. Aborting'
-            self.send_log(msg, 'critical')
-            print(e)
-            sys.exit(1)
+        res = self._make_request(req, genmsg=msg, fail_msg='Failed to contact API for authentication', abort_on_fail=True)
 
         output = self._process_response(res)
 
@@ -137,7 +127,6 @@ class DelugeClient(TorrentClient):
 
         msg = 'Successfully Authenticated With {} API'.format(self.torrent_client)
         self.send_log(msg, 'info')
-
 
     def _build_torrent_list(self, torrents):
         """
@@ -160,25 +149,26 @@ class DelugeClient(TorrentClient):
             self.torrent_list[hash]['tracker'] = data['tracker_host']
             self.torrent_list[hash]['total_files'] = data['num_files']
 
-
     def get_all_torrents(self):
         """
         Return a list of all torrents from the API
         :return:
         """
 
+        self.send_log('Getting list of torrents', 'debug')
+
         req = self._create_request(method='core.get_torrents_status', params=['',''])
-        try:
-            self._check_session() # Make sure we still have an active session
-            res = urlopen(req)
-        except URLError as e:
-            msg = 'Failed to get list of torrents.  HTTP Error'
-            self.send_log(msg, 'error')
-            print(e)
+
+        self._check_session() # Make sure we still have an active session
+
+        res = self._make_request(req, fail_msg='Failed to get list of torrents from API')
+
+        if not res:
             self.torrent_list = {}
             return
 
         output = self._process_response(res)
+
         if not output:
             return
 

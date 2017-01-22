@@ -96,14 +96,13 @@ class UTorrentClient(TorrentClient):
 
         req = self._create_request(params='action=getprops&hash={}'.format(hash))
 
-        try:
-            res = urlopen(req).read().decode('utf-8')
-        except URLError as e:
-            msg = 'Failed to get trackers from URL for hash {}'.format(hash)
-            self.send_log(msg, 'error')
+        fail_msg = msg = 'Failed to get trackers from URL for hash {}'.format(hash)
+        res = self._make_request(req, fail_msg=fail_msg)
+
+        if not res:
             return 'N/A'
 
-        res_json = json.loads(res)
+        res_json = self._process_response(res)
 
         tracker = res_json['props'][0]['trackers'].split()[0]
 
@@ -115,6 +114,13 @@ class UTorrentClient(TorrentClient):
             tracker_url = tracker_url.replace(match, '')
 
         return tracker_url
+
+    def _process_response(self, res):
+
+        raw_output = res.read().decode('utf-8')
+        json_output = json.loads(raw_output)
+
+        return json_output
 
     def _get_file_count(self, hash):
         """
@@ -128,16 +134,17 @@ class UTorrentClient(TorrentClient):
 
         req = self._create_request(params='action=getfiles&hash={}'.format(hash))
 
-        try:
-            res = urlopen(req).read().decode('utf-8')
-        except URLError as e:
-            msg = 'Failed to get file list from URL for hash {}'.format(hash)
-            self.send_log(msg, 'error')
+        res = self._make_request(req, fail_msg='Failed to get file list for hash '.format(hash))
+
+        if not res:
             return 'N/A'
 
-        res_json = json.loads(res)
+        output = self._process_response(res)
 
-        return len(res_json['files'][1])
+        if 'files' in output:
+            return len(output['files'][1])
+        else:
+            return 'N/A'
 
     def get_all_torrents(self):
         """
@@ -150,16 +157,15 @@ class UTorrentClient(TorrentClient):
 
         req = self._create_request(params='list=1')
 
-        try:
-            res = urlopen(req)
-            final = res.read().decode('utf-8')
-        except URLError as e:
-            msg = 'Failed to get list of all torrents'
-            print(e)
-            self.send_log(msg, 'error')
+        res = self._make_request(req, fail_msg='Failed to get list of all torrents')
+
+        if not res:
             self.torrent_list = {}
             return
 
-        final_json = json.loads(final)
+        output = self._process_response(res)
 
-        self._build_torrent_list(final_json['torrents'])
+        if 'torrents' in output:
+            self._build_torrent_list(output['torrents'])
+        else:
+            self.torrent_list = {}
