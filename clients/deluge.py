@@ -115,7 +115,7 @@ class DelugeClient(TorrentClient):
         try:
             res = urlopen(req)
         except URLError as e:
-            msg = 'Failed To Authenticate with torrent client.  HTTP Error'
+            msg = 'Failed To Authenticate with torrent client.  HTTP Error. Aborting'
             self.send_log(msg, 'critical')
             print(e)
             sys.exit(1)
@@ -175,6 +175,9 @@ class DelugeClient(TorrentClient):
             return
 
         output = self._process_response(res)
+        if not output:
+            return
+
         if output['error']:
             msg = 'Problem getting torrent list from {}. Error: {}'.format(self.torrent_client, output['error'])
             self.send_log(msg, 'error')
